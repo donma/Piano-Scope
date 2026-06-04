@@ -68,6 +68,7 @@ class ScoreRenderer {
         this.lastOptions = null;
         this.notationModel = null;
         this.lastScrolledLine = -1; // 記錄上一次滾動定位的行數
+        this.debugMode = false; // Debug 模式開關
         
         // 渲染模式：'engraving' (正式黑色出版譜，使用 trackColor 做低干擾輔助)
         //            'track' (多音軌彩色譜，音符頭直接以音軌色彩上色)
@@ -231,6 +232,11 @@ class ScoreRenderer {
 
         // 繪製播放紅色指針
         this.drawPlayhead(ctx);
+
+        // 繪製 Debug Overlay 輔助診斷標籤
+        if (this.debugMode) {
+            this.drawDebugOverlay(ctx);
+        }
 
         // 同步雙緩衝離屏畫布內容到主螢幕
         this.ctx.clearRect(0, 0, width, height);
@@ -2267,6 +2273,93 @@ class ScoreRenderer {
             }
         });
 
+        ctx.restore();
+    }
+
+    /**
+     * 繪製 Debug 診斷輔助網格與標籤
+     */
+    drawDebugOverlay(ctx) {
+        ctx.save();
+        
+        const beatsPerMeasure = this.timeSignature[0];
+        
+        // 1. 繪製小節邊界與編號、節拍網格
+        for (let m = 0; m < this.totalMeasures; m++) {
+            const line = this.measureLineIndex[m];
+            if (line === undefined || line < 0 || line >= this.totalLines) continue;
+            
+            const trebleTopY = this.getSystemTop(line);
+            const bassTopY = this.getBassTop(trebleTopY);
+            const bassBottomY = bassTopY + 4 * this.config.staffSpacing;
+            
+            const startX = this.measureX[m];
+            const width = this.measureWidths[m];
+            
+            // 繪製小節起始分界綠色虛線
+            ctx.strokeStyle = 'rgba(40, 167, 69, 0.55)';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(startX, trebleTopY - 18);
+            ctx.lineTo(startX, bassBottomY + 18);
+            ctx.stroke();
+            
+            // 繪製小節編號
+            ctx.fillStyle = 'rgba(40, 167, 69, 0.95)';
+            ctx.font = 'bold 9px monospace';
+            ctx.fillText(`M:${m}`, startX + 4, trebleTopY - 14);
+            
+            // 繪製小節內節拍網格（藍色細虛線）
+            ctx.strokeStyle = 'rgba(0, 123, 255, 0.3)';
+            ctx.lineWidth = 0.8;
+            ctx.setLineDash([2, 2]);
+            ctx.fillStyle = 'rgba(0, 123, 255, 0.65)';
+            ctx.font = '8px monospace';
+            
+            for (let b = 0; b < beatsPerMeasure; b++) {
+                const beatVal = m * beatsPerMeasure + b;
+                const beatX = this.getXForBeat(beatVal);
+                
+                ctx.beginPath();
+                ctx.moveTo(beatX, trebleTopY - 5);
+                ctx.lineTo(beatX, bassBottomY + 5);
+                ctx.stroke();
+                
+                ctx.fillText(`b:${b + 1}`, beatX + 2, bassBottomY + 12);
+            }
+        }
+        
+        // 2. 繪製音符頭 Bounding Box、trackId 與 voiceIndex 標籤
+        if (this.notationModel && this.notationModel.chords) {
+            this.notationModel.chords.forEach(c => {
+                if (!c.visible) return;
+                
+                // 繪製軌道與聲部標記
+                ctx.fillStyle = 'rgba(111, 66, 193, 0.9)';
+                ctx.font = 'bold 9px monospace';
+                ctx.setLineDash([]);
+                
+                const shortTrackId = String(c.trackId).substring(0, 8);
+                const infoText = `T:${shortTrackId} V:${c.voiceIndex}`;
+                
+                // 高音譜表往上偏置標記，低音譜表往下偏置標記
+                const yPos = c.staff === 'treble' ? c.y - 18 : c.y + 18;
+                ctx.fillText(infoText, c.x - 14, yPos);
+                
+                c.notes.forEach(note => {
+                    // 音符頭紅色 Bounding Box
+                    ctx.strokeStyle = 'rgba(220, 53, 69, 0.7)';
+                    ctx.lineWidth = 1;
+                    
+                    const boxW = this.config.noteRadius * 2.3;
+                    const boxH = this.config.noteRadius * 1.7;
+                    
+                    ctx.strokeRect(note.x - boxW / 2, note.y - boxH / 2, boxW, boxH);
+                });
+            });
+        }
+        
         ctx.restore();
     }
 }

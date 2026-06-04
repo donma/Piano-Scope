@@ -58,6 +58,14 @@
                     </svg>
                     開啟檔案
                 </button>
+                <button id="btn-export-png" class="btn btn-secondary" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    匯出樂譜 PNG
+                </button>
             </div>
         </nav>
 
@@ -71,15 +79,25 @@
                 </div>
                 <h2 class="upload-title">上傳 MIDI 檔案</h2>
                 <p class="upload-subtitle">將檔案拖放到這裡，或點擊選擇</p>
-                <button class="btn btn-primary upload-btn">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="17 8 12 3 7 8"/>
-                        <line x1="12" y1="3" x2="12" y2="15"/>
-                    </svg>
-                    選擇檔案
-                </button>
-                <p class="upload-hint">支援 .mid, .midi 格式</p>
+                <div style="display: flex; gap: 10px; margin-top: 16px;">
+                    <button class="btn btn-primary upload-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        選擇檔案
+                    </button>
+                    <button id="btn-show-samples" class="btn btn-secondary">載入範例 MIDI</button>
+                </div>
+                <div id="sample-list" class="sample-list hidden" style="margin-top: 16px; display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 280px; align-items: center;">
+                    <button class="btn btn-secondary btn-sample" data-sample="simple-scale.mid" style="justify-content: center; width: 100%;">音階練習 (simple-scale.mid)</button>
+                    <button class="btn btn-secondary btn-sample" data-sample="chord-test.mid" style="justify-content: center; width: 100%;">和弦測試 (chord-test.mid)</button>
+                    <button class="btn btn-secondary btn-sample" data-sample="multi-track-demo.mid" style="justify-content: center; width: 100%;">多音軌 (multi-track-demo.mid)</button>
+                    <button class="btn btn-secondary btn-sample" data-sample="pedal-demo.mid" style="justify-content: center; width: 100%;">延音踏板 (pedal-demo.mid)</button>
+                    <button class="btn btn-secondary btn-sample" data-sample="dense-midi-test.mid" style="justify-content: center; width: 100%;">密集排版 (dense-midi-test.mid)</button>
+                </div>
+                <p class="upload-hint" style="margin-top: 10px;">支援 .mid, .midi 格式</p>
                 <input type="file" id="file-input" accept=".mid,.midi" hidden>
             </div>
         </div>
@@ -137,6 +155,27 @@
                     </div>
                     
                     <div class="player-options">
+                        <!-- 樂譜模式切換 -->
+                        <div class="score-mode-selector" style="display: flex; align-items: center; gap: 6px;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:var(--text-muted);">
+                                <path d="M9 18V5l12-2v13"/>
+                                <circle cx="6" cy="18" r="3"/>
+                                <circle cx="18" cy="16" r="3"/>
+                            </svg>
+                            <select id="score-mode-select" style="background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 6px;font-size:11px;cursor:pointer;">
+                                <option value="engraving" selected>正式樂譜 (Engraving)</option>
+                                <option value="track">音軌彩色 (Track)</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Debug 模式開關 -->
+                        <div class="debug-toggle-container" style="display: flex; align-items: center; margin-left: 4px; margin-right: 4px;">
+                            <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="debug-overlay-checkbox" style="cursor:pointer; width:13px; height:13px; accent-color:var(--primary);">
+                                Debug 模式
+                            </label>
+                        </div>
+
                         <div class="speed-selector">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
