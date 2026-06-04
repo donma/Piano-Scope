@@ -61,6 +61,19 @@ class MidiParser {
                     durationTicks: note.durationTicks
                 }));
 
+                // 解析 CC 64 延音踏板事件
+                const pedalEvents = [];
+                const cc64 = track.controlChanges ? (track.controlChanges[64] || track.controlChanges["64"]) : null;
+                if (cc64 && Array.isArray(cc64)) {
+                    cc64.forEach(cc => {
+                        pedalEvents.push({
+                            time: cc.time,
+                            value: cc.value
+                        });
+                    });
+                }
+                pedalEvents.sort((a, b) => a.time - b.time);
+
                 return {
                     index,
                     name: track.name || `Track ${index + 1}`,
@@ -70,7 +83,8 @@ class MidiParser {
                     notes,
                     noteCount: notes.length,
                     duration: track.duration || 0,
-                    isPercussion: track.channel === 9
+                    isPercussion: track.channel === 9,
+                    pedalEvents
                 };
             })
             .filter(track => track.noteCount > 0 && !track.isPercussion);

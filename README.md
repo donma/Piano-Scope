@@ -26,6 +26,11 @@ Piano Scope 能讀取標準 `.mid` / `.midi` 檔案，直接在瀏覽器中渲�
 - **休止符** — 全休止、二分、四分、八分、十六分休止符（Canvas 繪製，不依賴字型）
 - **碰撞處理** — 相鄰音符頭自動水平偏移，避免重疊
 
+### 速度、強弱與踏板
+- **速度標記** — 左上角顯示 `♩ = BPM`
+- **強弱記號** — 根據 MIDI velocity 自動產生 `pp` / `p` / `mp` / `mf` / `f` / `ff`，繪製於高低譜表之間
+- **延音踏板線** — 解析 MIDI CC 64 事件，繪製標準 `Ped. ____/\___\|` 記譜，支援快速踏板更換自動合併
+
 ### 多音軌支援
 - **音軌顏色** — 16 色色盤，每個音軌分配獨立顏色
 - **音軌顯示／隱藏** — 側邊欄 checkbox 控制
@@ -36,6 +41,7 @@ Piano Scope 能讀取標準 `.mid` / `.midi` 檔案，直接在瀏覽器中渲�
 ### 播放功能
 - **Tone.js PolySynth** — 多聲部音訊合成
 - **播放游標** — 紅色垂直線搭配倒三角指標
+- **自動滾動** — 播放時當前行平滑置中，視區自動跟隨
 - **點擊定位** — 點擊樂譜任意位置跳轉播放
 - **速度控制** — 0.25x 至 2x 播放速度
 - **音量控制** — 可調整滑桿
@@ -67,7 +73,7 @@ start index.html
 
 | 函式庫 | 版本 | 用途 |
 |--------|------|------|
-| [@tonejs/midi](https://github.com/Tonejs/Midi) | 2.0.28 | MIDI 檔案解析 |
+| [@tonejs/midi](https://github.com/Tonejs/Midi) | 2.0.28 | MIDI 檔案解析（含 CC 64 踏板事件） |
 | [Tone.js](https://github.com/Tonejs/Tone.js) | 14.7.77 | 音訊合成與播放 |
 
 這些套件由 jsDelivr CDN 載入，寫在 `index.html` 中——無需 `npm install`。
@@ -77,14 +83,14 @@ start index.html
 ## 📂 專案結構
 
 ```
-piano-score-app/
+Piano-Scope/
 ├── index.html              # 單頁應用程式入口
 ├── README.md               # 本說明文件
 ├── css/
 │   └── style.css           # 主題系統、響應式佈局、播放器 UI
 ├── js/
-│   ├── midi-parser.js      # MIDI 檔案解析（使用 @tonejs/midi）
-│   ├── score-renderer.js   # 記譜刻印引擎（1900+ 行）
+│   ├── midi-parser.js      # MIDI 檔案解析（含 CC 64 踏板事件）
+│   ├── score-renderer.js   # 記譜刻印引擎（2200+ 行）
 │   ├── audio-player.js     # Tone.js 播放控制器
 │   └── app.js              # 應用程式協調器
 └── lib/                    # （保留給本機函式庫）
@@ -94,13 +100,16 @@ piano-score-app/
 
 ```
 MIDI 檔案
-  → MidiParser.loadFromFile()      // 載入並解析 MIDI
-  → normalizeTracks()              // 設定 trackId, trackColor, channel
+  → MidiParser.loadFromFile()      // 載入並解析 MIDI（含 CC 64 踏板）
+  → normalizeTracks()              // 設定 trackId, trackColor, channel, pedalEvents
   → detectKeySignature()           // 自動偵測調號
   → quantizeNotes()                // 量化至節拍格線，保留 metadata
   → assignStaff()                  // pitch ≥ 60 → 高音譜表，否則低音譜表
   → assignVoices()                 // 不同音軌 → 不同聲部
   → groupChords()                  // 同 track + staff + voice + beat → 和弦
+  → generatePedalSegments()        // CC 64 → 踏板時值區間
+  → groupPedalSegments()           // 相鄰踏板段自動合併
+  → generateDynamicsMarkings()     // velocity → 強弱記號
   → layoutSystems()                // 計算 x/y 位置，動態小節寬度
   → resolveCollisions()            // 偏移重疊音符頭
   → drawFrame()                    // 渲染至離屏畫布，再同步至螢幕
@@ -136,6 +145,8 @@ MIDI 檔案
 - **響應式重繪** — 視窗縮放觸發 120ms 去抖重繪，重新計算小節寬度
 - **全音階音高映射** — MIDI 音高透過 `octave * 7 + step` 公式映射至譜表位置
 - **Beam 斜率限制** — Beam 最大斜率限制為 0.12，防止極端角度
+- **踏板段融合** — 間隔 ≤ 0.4 拍的踏板段自動合併為連續踏板線
+- **強弱演算法** — 依據 velocity 閾值分六級，變級且間距 ≥ 6 拍才標記
 
 ---
 

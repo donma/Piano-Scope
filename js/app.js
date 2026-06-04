@@ -204,7 +204,8 @@ class PianoScoreApp {
                     tracks.push({
                         notes: t.notes,
                         name: t.name || `Track ${idx + 1}`,
-                        color: this.trackColors[idx % this.trackColors.length]
+                        color: this.trackColors[idx % this.trackColors.length],
+                        pedalEvents: t.pedalEvents || []
                     });
                 }
             });

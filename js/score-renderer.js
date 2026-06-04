@@ -67,6 +67,7 @@ class ScoreRenderer {
         this.lastTracks = null;
         this.lastOptions = null;
         this.notationModel = null;
+        this.lastScrolledLine = -1; // 記錄上一次滾動定位的行數
         
         // 渲染模式：'engraving' (正式黑色出版譜，使用 trackColor 做低干擾輔助)
         //            'track' (多音軌彩色譜，音符頭直接以音軌色彩上色)
@@ -93,10 +94,10 @@ class ScoreRenderer {
             leftMargin: 90, // 譜表左側預留寬度（放置大譜表連線、譜號、調號）
             rightMargin: 40,
             measureWidthMin: 220, // 最小小節寬度
-            lineSpacing: 160, // 行與行之間的間距
+            lineSpacing: 190, // 行與行之間的間距 (增加間距以容納踏板線)
             grandGap: 56, // 高音譜表與低音譜表間的間隔
             topPadding: 40,
-            bottomPadding: 32,
+            bottomPadding: 40, // 增加底部邊距
             stemLength: 26, // 符桿長度
         };
     }
@@ -133,6 +134,7 @@ class ScoreRenderer {
         this.lastTracks = tracks;
         this.lastOptions = options;
         this.tempo = options.tempo || 120;
+        this.lastScrolledLine = -1; // 重置滾動定位行
 
         // 步驟 1: 將 MIDI 軌道音符合併、量化並建立 notation model
         this.notationModel = this.prepareNotationModel(tracks, this.tempo);
@@ -214,6 +216,19 @@ class ScoreRenderer {
         // 繪製跨拍延音線
         this.drawTies(ctx, this.notationModel.chords);
 
+        // 繪製速度標記
+        this.drawTempoMarking(ctx);
+
+        // 繪製強弱記號
+        if (this.notationModel.dynamics) {
+            this.drawDynamics(ctx, this.notationModel.dynamics);
+        }
+
+        // 繪製延音踏板線
+        if (this.notationModel.pedalGroups) {
+            this.drawPedalLines(ctx, this.notationModel.pedalGroups);
+        }
+
         // 繪製播放紅色指針
         this.drawPlayhead(ctx);
 
@@ -267,12 +282,20 @@ class ScoreRenderer {
             }
         });
         const totalMeasures = Math.max(1, Math.ceil(maxBeat / beatsPerMeasure));
+        this.totalMeasures = totalMeasures; // 確保 this.totalMeasures 先更新
+
+        // 1.8 產生延音踏板段與強弱記號
+        const pedalSegments = this.generatePedalSegments(normalizedTracks, tempo);
+        const pedalGroups = this.groupPedalSegments(pedalSegments);
+        const dynamics = this.generateDynamicsMarkings(chords);
 
         return {
             tracks: normalizedTracks,
             chords,
             rests,
-            totalMeasures
+            totalMeasures,
+            pedalGroups,
+            dynamics
         };
     }
 
@@ -291,7 +314,8 @@ class ScoreRenderer {
                 trackName,
                 trackColor,
                 visible,
-                notes: track.notes || []
+                notes: track.notes || [],
+                pedalEvents: track.pedalEvents || []
             };
         });
     }
@@ -751,6 +775,21 @@ class ScoreRenderer {
             r.y = staffTopY + 4 * halfSpacing; // 預設第三線
             r.line = line;
         });
+
+        // 2.7 設定強弱記號絕對坐標
+        if (this.notationModel && this.notationModel.dynamics) {
+            this.notationModel.dynamics.forEach(d => {
+                d.line = this.getLineForBeat(d.beat);
+                d.x = this.getXForBeat(d.beat);
+                
+                const trebleTopY = this.getSystemTop(d.line);
+                const grandGap = this.config.grandGap;
+                const staffSpacing = this.config.staffSpacing;
+                
+                // 繪製於高音譜表與低音譜表之間的空隙中央
+                d.y = trebleTopY + 4 * staffSpacing + grandGap / 2;
+            });
+        }
 
         return { width, height };
     }
@@ -1678,6 +1717,9 @@ class ScoreRenderer {
         const line = this.measureLineIndex[measureIndex];
         if (line === undefined || line < 0 || line >= this.totalLines) return;
 
+        // 當播放行切換時，觸發自動視區滾動
+        this.scrollToCurrentLine(line);
+
         const mX = this.measureX[measureIndex];
         const mW = this.measureWidths[measureIndex];
 
@@ -1842,6 +1884,10 @@ class ScoreRenderer {
         this.lastOptions = null;
         this.totalMeasures = 1;
         this.totalLines = 1;
+        this.lastScrolledLine = -1;
+        if (this.container && this.container.parentElement) {
+            this.container.parentElement.scrollTop = 0;
+        }
     }
 
     /* === 工具函式 === */
@@ -1930,6 +1976,298 @@ class ScoreRenderer {
         if (!orig) return false;
         const time = this.currentTime;
         return time >= orig.time - 0.03 && time <= orig.time + orig.duration + 0.03;
+    }
+
+    /**
+     * 自動視區滾動定位：將目前播放行平滑置中
+     */
+    scrollToCurrentLine(line) {
+        if (line === this.lastScrolledLine) return;
+        this.lastScrolledLine = line;
+
+        const container = this.container.parentElement;
+        if (!container) return;
+
+        const trebleTopY = this.getSystemTop(line);
+        const systemHeight = this.getSystemHeight();
+        const systemCenter = trebleTopY + systemHeight / 2;
+
+        const targetScrollTop = systemCenter - container.clientHeight / 2;
+        const maxScroll = container.scrollHeight - container.clientHeight;
+        const scrollTop = Math.max(0, Math.min(maxScroll, targetScrollTop));
+
+        container.scrollTo({
+            top: scrollTop,
+            behavior: 'smooth'
+        });
+    }
+
+    /**
+     * 從軌道中解析 CC 64 延音踏板事件並配對為踏板時值區間 (Pedal Segments)
+     */
+    generatePedalSegments(tracks, tempo) {
+        // 尋找踏板事件最多的音軌（通常是鋼琴演奏軌）
+        let bestTrack = null;
+        let maxCount = -1;
+        tracks.forEach(track => {
+            if (track.visible && track.pedalEvents && track.pedalEvents.length > maxCount) {
+                maxCount = track.pedalEvents.length;
+                bestTrack = track;
+            }
+        });
+
+        const allEvents = [];
+        if (bestTrack && bestTrack.pedalEvents) {
+            bestTrack.pedalEvents.forEach(e => {
+                allEvents.push({
+                    beat: e.time * tempo / 60,
+                    value: e.value
+                });
+            });
+        }
+        allEvents.sort((a, b) => a.beat - b.beat);
+
+        const segments = [];
+        let isPressed = false;
+        let pressBeat = -1;
+
+        for (const e of allEvents) {
+            if (e.value >= 64) {
+                if (!isPressed) {
+                    isPressed = true;
+                    pressBeat = e.beat;
+                }
+            } else {
+                if (isPressed) {
+                    segments.push({ startBeat: pressBeat, endBeat: e.beat });
+                    isPressed = false;
+                }
+            }
+        }
+        if (isPressed) {
+            const beatsPerMeasure = this.timeSignature[0];
+            segments.push({ startBeat: pressBeat, endBeat: this.totalMeasures * beatsPerMeasure });
+        }
+
+        return segments;
+    }
+
+    /**
+     * 將相鄰極近的踏板區段（間隔 <= 0.4 拍，即快速踏板更換）融合成一個踏板線群組 (Notch-connected)
+     */
+    groupPedalSegments(segments) {
+        const groups = [];
+        let currentGroup = [];
+        for (const seg of segments) {
+            if (currentGroup.length === 0) {
+                currentGroup.push(seg);
+            } else {
+                const lastSeg = currentGroup[currentGroup.length - 1];
+                if (seg.startBeat - lastSeg.endBeat <= 0.4) {
+                    currentGroup.push(seg);
+                } else {
+                    groups.push(currentGroup);
+                    currentGroup = [seg];
+                }
+            }
+        }
+        if (currentGroup.length > 0) {
+            groups.push(currentGroup);
+        }
+        return groups;
+    }
+
+    /**
+     * 強弱強弱對應與過濾演算法
+     */
+    getDynamicsLevel(velocity) {
+        if (velocity >= 0.9) return { level: 5, symbol: 'ff' };
+        if (velocity >= 0.75) return { level: 4, symbol: 'f' };
+        if (velocity >= 0.6) return { level: 3, symbol: 'mf' };
+        if (velocity >= 0.45) return { level: 2, symbol: 'mp' };
+        if (velocity >= 0.3) return { level: 1, symbol: 'p' };
+        return { level: 0, symbol: 'pp' };
+    }
+
+    generateDynamicsMarkings(chords) {
+        if (chords.length === 0) return [];
+        
+        const sortedChords = [...chords]
+            .filter(c => c.visible && c.notes.length > 0)
+            .sort((a, b) => a.startBeat - b.startBeat);
+            
+        if (sortedChords.length === 0) return [];
+
+        const dynamics = [];
+        let lastLevel = -1;
+        let lastMarkingBeat = -999;
+
+        sortedChords.forEach(c => {
+            const maxVel = Math.max(...c.notes.map(n => n.originalNote ? n.originalNote.velocity : 0.6));
+            const { level, symbol } = this.getDynamicsLevel(maxVel);
+
+            // 當強度等級改變，且距離上一個強弱記號已超過 6 拍時才插入
+            if (level !== lastLevel && c.startBeat - lastMarkingBeat >= 6) {
+                dynamics.push({
+                    beat: c.startBeat,
+                    symbol: symbol,
+                    measureIndex: c.measureIndex
+                });
+                lastLevel = level;
+                lastMarkingBeat = c.startBeat;
+            }
+        });
+
+        return dynamics;
+    }
+
+    /**
+     * 獲取指定節拍在譜面上的 X 坐標
+     */
+    getXForBeat(b) {
+        const beatsPerMeasure = this.timeSignature[0];
+        const m = Math.max(0, Math.min(this.totalMeasures - 1, Math.floor(b / beatsPerMeasure)));
+        const beatIndex = b - m * beatsPerMeasure;
+        const mX = this.measureX[m];
+        const mW = this.measureWidths[m];
+        const leftPadding = (m === 0) ? 44 : 20;
+        const rightPadding = 12;
+        const progress = beatIndex / beatsPerMeasure;
+        return mX + leftPadding + progress * (mW - leftPadding - rightPadding);
+    }
+
+    /**
+     * 獲取指定節拍所屬的行數 (Line Index)
+     */
+    getLineForBeat(b) {
+        const beatsPerMeasure = this.timeSignature[0];
+        const m = Math.max(0, Math.min(this.totalMeasures - 1, Math.floor(b / beatsPerMeasure)));
+        return this.measureLineIndex[m];
+    }
+
+    /**
+     * 繪製速度標記 (BPM)
+     */
+    drawTempoMarking(ctx) {
+        if (this.totalLines === 0) return;
+        const x = this.config.leftMargin;
+        const y = this.getSystemTop(0) - 16;
+
+        ctx.save();
+        ctx.fillStyle = this.config.noteColor;
+        ctx.font = '600 13px Inter, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`♩ = ${this.tempo}`, x, y);
+        ctx.restore();
+    }
+
+    /**
+     * 繪製強弱記號 (*p*, *f* 等，高低譜表空隙中央，並加背景遮罩)
+     */
+    drawDynamics(ctx, dynamics) {
+        if (!dynamics || dynamics.length === 0) return;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'italic bold 13px Georgia, serif';
+
+        dynamics.forEach(d => {
+            if (d.x === undefined || d.y === undefined) return;
+            const width = ctx.measureText(d.symbol).width + 6;
+            ctx.fillStyle = this.config.bgColor; // 紙張背景色
+            ctx.fillRect(d.x - width / 2, d.y - 8, width, 16);
+            
+            ctx.fillStyle = this.config.noteColor;
+            ctx.fillText(d.symbol, d.x, d.y);
+        });
+
+        ctx.restore();
+    }
+
+    /**
+     * 繪製延音踏板折線與勾 (Ped. ____/\____|)
+     */
+    drawPedalLines(ctx, pedalGroups) {
+        if (!pedalGroups || pedalGroups.length === 0) return;
+
+        ctx.save();
+        ctx.strokeStyle = this.config.noteColor;
+        ctx.lineWidth = 1.2;
+        ctx.fillStyle = this.config.noteColor;
+
+        const beatsPerMeasure = this.timeSignature[0];
+
+        pedalGroups.forEach(group => {
+            const groupStartBeat = group[0].startBeat;
+            const groupEndBeat = group[group.length - 1].endBeat;
+
+            for (let l = 0; l < this.totalLines; l++) {
+                const lineMeasures = this.lines[l];
+                if (!lineMeasures || lineMeasures.length === 0) continue;
+                const firstM = lineMeasures[0];
+                const lastM = lineMeasures[lineMeasures.length - 1];
+
+                const lineStartBeatOfLine = firstM * beatsPerMeasure;
+                const lineEndBeatOfLine = (lastM + 1) * beatsPerMeasure;
+
+                const lineStartBeat = Math.max(groupStartBeat, lineStartBeatOfLine);
+                const lineEndBeat = Math.min(groupEndBeat, lineEndBeatOfLine);
+
+                if (lineStartBeat >= lineEndBeat - 0.01) continue;
+
+                const x1 = this.getXForBeat(lineStartBeat);
+                const x2 = this.getXForBeat(lineEndBeat);
+
+                const trebleTopY = this.getSystemTop(l);
+                const bassTopY = this.getBassTop(trebleTopY);
+                const bassBottomY = bassTopY + 4 * this.config.staffSpacing;
+                const y = bassBottomY + 22; // 繪製於低音譜表下方 22px
+
+                const notchesInLine = group.slice(0, -1)
+                    .map(s => s.endBeat)
+                    .filter(nb => nb > lineStartBeat + 0.05 && nb < lineEndBeat - 0.05);
+
+                ctx.beginPath();
+
+                let currentX = x1;
+                if (Math.abs(lineStartBeat - groupStartBeat) < 0.01) {
+                    ctx.save();
+                    ctx.font = 'italic bold 12px "Times New Roman", Georgia, serif';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('Ped.', x1, y);
+                    ctx.restore();
+                    currentX = x1 + 24;
+                } else {
+                    currentX = this.config.leftMargin - 20;
+                }
+
+                ctx.moveTo(currentX, y);
+
+                notchesInLine.forEach(nb => {
+                    const notchX = this.getXForBeat(nb);
+                    ctx.lineTo(notchX - 3, y);
+                    ctx.lineTo(notchX, y - 6);
+                    ctx.lineTo(notchX + 3, y);
+                });
+
+                let endX = x2;
+                if (Math.abs(lineEndBeat - groupEndBeat) >= 0.01) {
+                    const systemWidth = lineMeasures.reduce((acc, m) => acc + this.measureWidths[m], 0);
+                    endX = this.config.leftMargin + systemWidth;
+                }
+
+                ctx.lineTo(endX, y);
+
+                if (Math.abs(lineEndBeat - groupEndBeat) < 0.01) {
+                    ctx.lineTo(endX, y - 6);
+                }
+
+                ctx.stroke();
+            }
+        });
+
+        ctx.restore();
     }
 }
 
