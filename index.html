@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PianoScore - MIDI 樂譜播放器</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- 頂部導航欄 -->
+        <nav class="navbar">
+            <div class="navbar-brand">
+                <div class="logo-mark">
+                    <svg viewBox="0 0 32 32" fill="none">
+                        <rect width="32" height="32" rx="8" fill="url(#logo-gradient)"/>
+                        <path d="M10 22V10l12-2v12" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                        <circle cx="8" cy="22" r="2.5" fill="white"/>
+                        <circle cx="20" cy="20" r="2.5" fill="white"/>
+                        <defs>
+                            <linearGradient id="logo-gradient" x1="0" y1="0" x2="32" y2="32">
+                                <stop stop-color="#6366f1"/>
+                                <stop offset="1" stop-color="#8b5cf6"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <span class="logo-text">PianoScore</span>
+            </div>
+            <div class="navbar-center">
+                <div id="now-playing" class="now-playing hidden">
+                    <div class="now-playing-icon">
+                        <span></span><span></span><span></span>
+                    </div>
+                    <span id="now-playing-text">準備播放</span>
+                </div>
+            </div>
+            <div class="navbar-menu">
+                <button id="btn-theme" class="btn-icon" title="切換主題">
+                    <svg id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="5"/>
+                        <line x1="12" y1="1" x2="12" y2="3"/>
+                        <line x1="12" y1="21" x2="12" y2="23"/>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                        <line x1="1" y1="12" x2="3" y2="12"/>
+                        <line x1="21" y1="12" x2="23" y2="12"/>
+                    </svg>
+                    <svg id="icon-moon" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                </button>
+                <button id="btn-new-file" class="btn btn-secondary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    開啟檔案
+                </button>
+            </div>
+        </nav>
+
+        <!-- 上傳區域 -->
+        <div id="upload-area" class="upload-area">
+            <div class="upload-card">
+                <div class="upload-visual">
+                    <div class="upload-notes">
+                        <span>♩</span><span>♪</span><span>♫</span><span>♬</span>
+                    </div>
+                </div>
+                <h2 class="upload-title">上傳 MIDI 檔案</h2>
+                <p class="upload-subtitle">將檔案拖放到這裡，或點擊選擇</p>
+                <button class="btn btn-primary upload-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    選擇檔案
+                </button>
+                <p class="upload-hint">支援 .mid, .midi 格式</p>
+                <input type="file" id="file-input" accept=".mid,.midi" hidden>
+            </div>
+        </div>
+
+        <!-- 主要內容區域 -->
+        <div id="main-content" class="main-content hidden">
+            <!-- 左側面板 -->
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <h3>音軌</h3>
+                        <span id="track-count" class="count-badge">0</span>
+                    </div>
+                    <div id="track-list" class="track-list"></div>
+                </div>
+                
+                <div class="sidebar-divider"></div>
+                
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <h3>檔案資訊</h3>
+                    </div>
+                    <div id="file-info" class="file-info"></div>
+                </div>
+            </aside>
+
+            <!-- 主內容區 -->
+            <main class="main-area">
+                <!-- 播放控制條 -->
+                <div class="player-bar">
+                    <div class="player-controls">
+                        <button id="btn-play" class="btn-play-main" disabled>
+                            <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                            <svg id="pause-icon" class="hidden" viewBox="0 0 24 24" fill="currentColor">
+                                <rect x="6" y="4" width="4" height="16"/>
+                                <rect x="14" y="4" width="4" height="16"/>
+                            </svg>
+                        </button>
+                        <button id="btn-stop" class="btn-icon" disabled>
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <rect x="6" y="6" width="12" height="12"/>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <div class="player-progress">
+                        <span id="time-current" class="time-display">0:00</span>
+                        <div class="progress-track">
+                            <div id="progress" class="progress-fill"></div>
+                            <div id="progress-handle" class="progress-handle"></div>
+                        </div>
+                        <span id="time-total" class="time-display">0:00</span>
+                    </div>
+                    
+                    <div class="player-options">
+                        <div class="speed-selector">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                            </svg>
+                            <select id="speed-select">
+                                <option value="0.25">0.25x</option>
+                                <option value="0.5">0.5x</option>
+                                <option value="0.75">0.75x</option>
+                                <option value="1" selected>1x</option>
+                                <option value="1.25">1.25x</option>
+                                <option value="1.5">1.5x</option>
+                                <option value="2">2x</option>
+                            </select>
+                        </div>
+                        <div class="volume-control">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                            </svg>
+                            <input type="range" id="volume" min="0" max="100" value="80" class="volume-slider">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 樂譜區域 -->
+                <div id="score-container" class="score-container">
+                    <div id="score" class="score"></div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.js"></script>
+    <script src="js/midi-parser.js"></script>
+    <script src="js/score-renderer.js"></script>
+    <script src="js/audio-player.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
